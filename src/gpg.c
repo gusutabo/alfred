@@ -7,22 +7,26 @@
 #include <dirent.h>
 #include <termios.h>
 
+#include "../include/cli.h"
+#include "../include/gpg.h"
+
 #define MAX 512
 
 static char store[MAX];
 
-static void init(void) {
+void init(void) {
     snprintf(store, MAX, "%s/.password-store", getenv("HOME"));
     mkdir(store, 0700);
 }
 
-static void build_path(const char *name, char *out) {
-    if (strchr(name, '/') || strstr(name, "..")) {
-        fprintf(stderr, "Invalid name.\n");
-        exit(1);
-    }
+static void build_path(const char *name, char *out)
+{
+    int n = snprintf(out, MAX, "%s/%s.gpg", store, name);
 
-    snprintf(out, MAX, "%s/%s.gpg", store, name);
+    if (n < 0 || n >= MAX) {
+        fprintf(stderr, "Path too long.\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 static void read_pass(char *buf, size_t n) {
@@ -51,7 +55,7 @@ static void read_pass(char *buf, size_t n) {
     fclose(tty);
 }
 
-static void cmd_add(const char *name) {
+void gpg_create(const char *name) {
     char p[MAX], pass[256];
 
     build_path(name, p);
@@ -69,6 +73,7 @@ static void cmd_add(const char *name) {
         close(fd[1]);
 
         char *key = getenv("ALFRED_GPG_KEY");
+
         if (!key) {
             fprintf(stderr, "Missing ALFRED_GPG_KEY\n");
             _exit(1);
@@ -102,12 +107,12 @@ static void cmd_add(const char *name) {
     waitpid(pid, &status, 0);
 
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        puts("Saved.");
+        ok("Saved. Alles gut!");
     else
-        puts("Error.");
+        error("Something failed when writing the file.");
 }
 
-static void cmd_get(const char *name) {
+void gpg_get(const char *name) {
     char p[MAX];
 
     build_path(name, p);
@@ -130,7 +135,7 @@ static void cmd_get(const char *name) {
     waitpid(pid, NULL, 0);
 }
 
-static void cmd_list(void) {
+void gpg_list(void) {
     DIR *d = opendir(store);
     if (!d) {
         perror("opendir");
@@ -139,44 +144,14 @@ static void cmd_list(void) {
 
     struct dirent *e;
 
+    printf("- List of passwords stored:\n\n");
     while ((e = readdir(d))) {
         size_t l = strlen(e->d_name);
 
         if (l > 4 && !strcmp(e->d_name + l - 4, ".gpg")) {
-            printf("%.*s\n", (int)(l - 4), e->d_name);
+            printf(" * %.*s\n", (int)(l - 4), e->d_name);
         }
     }
 
     closedir(d);
-}
-
-int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        puts("Usage:");
-        puts("  alfred add <name>");
-        puts("  alfred get <name>");
-        puts("  alfred list");
-        return 1;
-    }
-
-    init();
-
-    if (!strcmp(argv[1], "add") && argc == 3)
-        cmd_add(argv[2]);
-
-    else if (!strcmp(argv[1], "get") && argc == 3)
-        cmd_get(argv[2]);
-
-    else if (!strcmp(argv[1], "list"))
-        cmd_list();
-
-    else {
-        puts("Usage:");
-        puts("  alfred add <name>");
-        puts("  alfred get <name>");
-        puts("  alfred list");
-        return 1;
-    }
-
-    return 0;
 }
